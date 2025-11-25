@@ -8,6 +8,7 @@ def get_expert_keyboard(request_id: int):
             InlineKeyboardButton(text="✏️ Редактировать", callback_data=f"edit_{request_id}")
         ],
         [
+            InlineKeyboardButton(text="🔄 Еще раз", callback_data=f"regenerate_{request_id}"),
             InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_{request_id}")
         ]
     ])
