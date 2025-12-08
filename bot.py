@@ -3,7 +3,7 @@ import logging
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
-import aiohttp
+import aiohttp  # Правильный импорт
 import json
 from datetime import datetime
 
@@ -195,7 +195,7 @@ class MistralAPI:
             "temperature": 0.7
         }
 
-        async with aiohttp.ClientSession() as http_session:
+        async with aiohttp.ClientSession() as http_session:  # ← Создаём сессию правильно
             async with http_session.post(
                     f"{self.base_url}/chat/completions",
                     headers=headers,
@@ -205,41 +205,64 @@ class MistralAPI:
                 return result['choices'][0]['message']['content']
 
 
-def clean_response(self, response):
-    """Очищает ответ от приветствий и обращений"""
-    # Удаляем приветствия из начала ответа
-    greetings = [
-        "здравствуйте", "добрый день", "добрый вечер", "доброе утро",
-        "привет", "доброй ночи", "уважаем", "татьяна", "николаевна",
-        "пользователь", "клиент", "дорогой", "дорогая"
-    ]
 
-    lines = response.split('\n')
-    cleaned_lines = []
+    def clean_response(self, response):
+        """Очищает ответ от приветствий и обращений"""
+        # Удаляем приветствия из начала ответа
+        greetings = [
+            "здравствуйте", "добрый день", "добрый вечер", "доброе утро",
+            "привет", "доброй ночи", "уважаем", "татьяна", "николаевна",
+            "пользователь", "клиент", "дорогой", "дорогая"
+        ]
 
-    for line in lines:
-        line_lower = line.lower().strip()
-        # Пропускаем строки, которые содержат только приветствия
-        if any(greeting in line_lower for greeting in greetings) and len(line_lower.split()) <= 3:
-            continue
-        # Удаляем приветствия из начала строк
-        for greeting in greetings:
-            if line_lower.startswith(greeting):
-                line = line[len(greeting):].lstrip(' ,!:-')
-                line_lower = line.lower().strip()
-        cleaned_lines.append(line)
+        lines = response.split('\n')
+        cleaned_lines = []
 
-    cleaned_response = '\n'.join(cleaned_lines).strip()
+        for line in lines:
+            line_lower = line.lower().strip()
+            # Пропускаем строки, которые содержат только приветствия
+            if any(greeting in line_lower for greeting in greetings) and len(line_lower.split()) <= 3:
+                continue
+            # Удаляем приветствия из начала строк
+            for greeting in greetings:
+                if line_lower.startswith(greeting):
+                    line = line[len(greeting):].lstrip(' ,!:-')
+                    line_lower = line.lower().strip()
+            cleaned_lines.append(line)
 
-    # Если после очистки ответ пустой, возвращаем оригинал
-    if not cleaned_response:
-        return response
+        cleaned_response = '\n'.join(cleaned_lines).strip()
 
-    # Убеждаемся, что ответ начинается с заглавной буквы
-    if cleaned_response and cleaned_response[0].islower():
-        cleaned_response = cleaned_response[0].upper() + cleaned_response[1:]
+        # Если после очистки ответ пустой, возвращаем оригинал
+        if not cleaned_response:
+            return response
 
-    return cleaned_response
+        # Убеждаемся, что ответ начинается с заглавной буквы
+        if cleaned_response and cleaned_response[0].islower():
+            cleaned_response = cleaned_response[0].upper() + cleaned_response[1:]
+
+        return cleaned_response
+
+    def add_greeting_disclaimer(self, response: str) -> str:
+        """
+        Добавляет приветствие и дисклеймер к ответу
+
+        Формат:
+        1. Приветствие
+        2. Основной ответ
+        3. Дисклеймер (если это медицинский ответ)
+        """
+
+        # Проверяем, является ли ответ общим (не медицинским)
+        is_general_response = "Я специализируюсь только на вопросах здоровья" in response
+
+        # Добавляем приветствие в начало
+        response_with_greeting = f"Здравствуйте!\n\n{response}"
+
+        # Для медицинских ответов добавляем дисклеймер в конец
+        if not is_general_response:
+            response_with_greeting = f"{response_with_greeting}\n\n⚠️ Этот ответ подготовлен ИИ и проверен медицинским специалистом. Он не заменяет очную консультацию врача."
+
+        return response_with_greeting
 
 mistral_api = MistralAPI(MISTRAL_API_KEY)
 
@@ -393,9 +416,10 @@ async def approve_response(callback: types.CallbackQuery):
             # Используем отредактированный ответ или оригинальный от ИИ
             final_response = draft.expert_edited_response or draft.llm_response
 
-            # Добавляем дисклеймер ТОЛЬКО для медицинских ответов
-            if "Я специализируюсь только на вопросах здоровья" not in final_response:
-                final_response = f"{final_response}\n\n⚠️ Этот ответ подготовлен ИИ и проверен медицинским специалистом. Он не заменяет очную консультацию врача."
+            # ▼▼▼ ЗАМЕНИТЕ ЭТУ ПРОВЕРКУ НА ВЫЗОВ МЕТОДА ▼▼▼
+            # Добавляем приветствие и дисклеймер
+            final_response = mistral_api.add_greeting_disclaimer(final_response)
+            # ▲▲▲ ЗАМЕНИТЕ ЭТУ ПРОВЕРКУ НА ВЫЗОВ МЕТОДА ▲▲▲
 
             # Отправляем ответ пользователю
             try:
