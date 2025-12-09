@@ -3,11 +3,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY')
+# Telegram Bot
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-if not BOT_TOKEN:
-    raise ValueError("TELEGRAM_BOT_TOKEN не найден в .env файле")
-
-if not MISTRAL_API_KEY:
-    raise ValueError("MISTRAL_API_KEY не найден в .env файле")
+# GigaChat API
+GIGACHAT_AUTH_KEY = os.getenv("GIGACHAT_AUTH_KEY", "MDE5YWZlY2EtNDBiZS03NWQxLWJiZDgtMzcwMWQ4MTc3MGNlOjViNzI4NzJjLWE3NjgtNDJhMy1iZmMyLWJkODc4MTU1NTc3Ng==")
+GIGACHAT_SCOPE = os.getenv("GIGACHAT_SCOPE", "GIGACHAT_API_PERS")

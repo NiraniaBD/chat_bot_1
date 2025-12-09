@@ -1,9 +1,10 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean
+# database.py
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 
-# Создаем базовый класс для моделей
+# Создаем базовый класс
 Base = declarative_base()
 
 
@@ -12,35 +13,40 @@ class UserRequest(Base):
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, nullable=False)
-    question = Column(Text, nullable=False)
-    timestamp = Column(DateTime, default=datetime.now)
-    status = Column(String(20), default='waiting')  # waiting, approved, rejected
+    question = Column(Text, nullable=False)  # Очищенный вопрос
+    original_question = Column(Text)  # ← ДОБАВЬТЕ ЭТО ПОЛЕ (опционально)
+    status = Column(String(50), default='waiting')
+    created_at = Column(DateTime, default=datetime.now)
+
+    drafts = relationship("DraftAnswer", back_populates="request", cascade="all, delete-orphan")
 
 
 class DraftAnswer(Base):
     __tablename__ = 'drafts'
 
     id = Column(Integer, primary_key=True)
-    request_id = Column(Integer, nullable=False)
+    request_id = Column(Integer, ForeignKey('requests.id', ondelete="CASCADE"), nullable=False)  # ВАЖНО: ForeignKey!
     llm_response = Column(Text)
     expert_edited_response = Column(Text)
     expert_id = Column(Integer)
     decision_time = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.now)
+
+    # Связь с запросом (ПРЯМАЯ связь)
+    request = relationship("UserRequest", back_populates="drafts")
 
 
 class Expert(Base):
     __tablename__ = 'experts'
 
     id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=False, unique=True)
     name = Column(String(100))
-    telegram_id = Column(Integer, unique=True)
-    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.now)
 
 
-# Создаем базу данных
-engine = create_engine('sqlite:///chatbot.db', echo=True)
+# Создаем движок и сессию
+engine = create_engine('sqlite:///chatbot.db')
 Base.metadata.create_all(engine)
-
-# Создаем сессию для работы с БД
 Session = sessionmaker(bind=engine)
 session = Session()
