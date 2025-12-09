@@ -34,6 +34,9 @@ EXPERT_IDS = [982232323]  # Ваш Telegram ID
 # Глобальный словарь для отслеживания редактирования
 editing_sessions = {}
 
+# Новый словарь для хранения message_id сообщений с кнопками
+expert_messages = {}  # ключ: (expert_id, request_id), значение: message_id
+
 # Защита от множественных нажатий (anti-flood)
 processing_requests = set()
 
@@ -120,46 +123,73 @@ async def handle_user_question(message: types.Message):
         session.commit()
         await message.answer("⚠️ Произошла ошибка при обработке вопроса. Попробуйте позже.")
 
+
 @dp.message(F.text & F.from_user.id.in_(EXPERT_IDS))
 async def handle_expert_text(message: types.Message):
-    """Обработка ВСЕХ текстовых сообщений от экспертов"""
+    """Обработка текстовых сообщений от экспертов в режиме редактирования"""
 
-    # Проверяем, находится ли эксперт в режиме редактирования
     if message.from_user.id in editing_sessions:
         request_id = editing_sessions[message.from_user.id]
-
-        # Находим черновик в БД
         draft = session.query(DraftAnswer).filter_by(request_id=request_id).first()
+        request = session.query(UserRequest).filter_by(id=request_id).first()
 
-        if draft:
+        if draft and request:
             # Сохраняем отредактированный текст
             draft.expert_edited_response = message.text
             session.commit()
 
+            # Получаем message_id для редактирования
+            message_key = (message.from_user.id, request_id)
+            target_message_id = expert_messages.get(message_key)
+
+            # ▼▼▼ ИСПРАВЛЕНИЕ: используем стандартную клавиатуру эксперта ▼▼▼
+            # После редактирования возвращаемся к ОСНОВНОЙ клавиатуре
+            keyboard = get_expert_keyboard(request_id)  # Стандартная клавиатура!
+            # ▲▲▲ ИСПРАВЛЕНИЕ: используем стандартную клавиатуру эксперта ▲▲▲
+
+            # Формируем текст сообщения
+            message_text = f"""🆕 Вопрос для модерации (ID: {request_id})
+
+❓ Вопрос пользователя:
+{request.question}
+
+🤖 Ответ ИИ (отредактирован):
+{message.text}"""
+
+            # Удаляем сообщение с текстом редактирования
+            try:
+                await message.delete()
+            except:
+                pass
+
+            # Редактируем сообщение с кнопками
+            if target_message_id:
+                try:
+                    await bot.edit_message_text(
+                        chat_id=message.from_user.id,
+                        message_id=target_message_id,
+                        text=message_text,
+                        reply_markup=keyboard  # Стандартная клавиатура
+                    )
+                except Exception as e:
+                    logging.error(f"Ошибка редактирования сообщения: {e}")
+                    # Если не удалось отредактировать, отправляем новое
+                    await message.answer(
+                        message_text,
+                        reply_markup=keyboard  # Стандартная клавиатура
+                    )
+            else:
+                await message.answer(
+                    message_text,
+                    reply_markup=keyboard  # Стандартная клавиатура
+                )
+
             # Удаляем сессию редактирования
             del editing_sessions[message.from_user.id]
-
-            # Показываем клавиатуру с действиями
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="✅ Опубликовать", callback_data=f"approve_{request_id}"),
-                    InlineKeyboardButton(text="✏️ Еще раз редактировать", callback_data=f"edit_{request_id}")
-                ],
-                [
-                    InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_{request_id}")
-                ]
-            ])
-
-            await message.answer(
-                f"✅ Ответ отредактирован!\n\n"
-                f"📋 Новый текст:\n{message.text}\n\n"
-                f"🔄 Выберите действие:",
-                reply_markup=keyboard
-            )
-
             logging.info(f"Эксперт {message.from_user.id} отредактировал ответ на запрос {request_id}")
+
         else:
-            await message.answer("❌ Ошибка: черновик не найден")
+            await message.answer("❌ Ошибка: запрос или черновик не найден")
             if message.from_user.id in editing_sessions:
                 del editing_sessions[message.from_user.id]
     else:
@@ -167,25 +197,85 @@ async def handle_expert_text(message: types.Message):
         await message.answer("🤖 Вы эксперт. Используйте кнопки модерации для работы с вопросами.")
 
 
+
+# Обработчик нажатия на кнопку "Назад"
+@dp.callback_query(F.data.startswith("back_"))
+async def back_to_main(callback: types.CallbackQuery):
+    """Возврат к меню - НЕ сохраняет несохраненные изменения из текущей сессии"""
+
+    if callback.data in processing_requests:
+        await callback.answer("⏳ Запрос уже обрабатывается...", show_alert=True)
+        return
+    processing_requests.add(callback.data)
+
+    try:
+        request_id = int(callback.data.split("_")[1])
+        request = session.query(UserRequest).filter_by(id=request_id).first()
+        draft = session.query(DraftAnswer).filter_by(request_id=request_id).first()
+
+        if request and draft:
+            # Если мы в режиме редактирования (текст еще не сохранен),
+            # НЕ используем несохраненные изменения из сессии
+            # Просто показываем то, что уже есть в БД
+
+            # Удаляем сессию редактирования (текст не сохранялся)
+            if callback.from_user.id in editing_sessions:
+                del editing_sessions[callback.from_user.id]
+
+            # Используем сохраненный в БД текст
+            current_response = draft.expert_edited_response or draft.llm_response
+
+            # Добавляем пометку если ответ отредактирован
+            response_label = "🤖 Ответ ИИ (отредактирован):" if draft.expert_edited_response else "🤖 Ответ ИИ:"
+
+            message_text = f"""🆕 Вопрос для модерации (ID: {request_id})
+
+❓ Вопрос пользователя:
+{request.question}
+
+{response_label}
+{current_response}"""
+
+            await callback.message.edit_text(
+                message_text,
+                reply_markup=get_expert_keyboard(request_id)
+            )
+
+            await callback.answer("Возврат к основному меню")
+        else:
+            await callback.answer("❌ Запрос не найден", show_alert=True)
+
+    finally:
+        if callback.data in processing_requests:
+            processing_requests.remove(callback.data)
+
+
 async def notify_experts(request_id: int, original_question: str, llm_response: str):
     """Уведомляет экспертов о новом вопросе"""
-    notification_text = f"""
-🆕 Новый вопрос для модерации (ID: {request_id})
+
+    request = session.query(UserRequest).filter_by(id=request_id).first()
+    if not request:
+        logging.error(f"Запрос {request_id} не найден для уведомления экспертов")
+        return
+
+    message_text = f"""🆕 Новый вопрос для модерации (ID: {request_id})
 
 👤 Вопрос пользователя:
 {original_question}
 
-🤖 Черновик ответа от ИИ:
-{llm_response}
-"""
+🤖 Ответ ИИ:
+{llm_response}"""
 
     for expert_id in EXPERT_IDS:
         try:
-            await bot.send_message(
+            message = await bot.send_message(
                 expert_id,
-                notification_text,
+                message_text,
                 reply_markup=get_expert_keyboard(request_id)
             )
+            # Сохраняем message_id для возможности редактирования
+            expert_messages[(expert_id, request_id)] = message.message_id
+
         except Exception as e:
             logging.error(f"Не удалось уведомить эксперта {expert_id}: {e}")
 
@@ -209,14 +299,22 @@ async def approve_response(callback: types.CallbackQuery):
         draft = session.query(DraftAnswer).filter_by(request_id=request_id).first()
 
         if request and draft:
+            # ▼▼▼ ВАЖНО: Проверяем, есть ли отредактированный текст ▼▼▼
+            if draft.expert_edited_response is not None:
+                # Используем отредактированный ответ
+                final_response = draft.expert_edited_response
+                logging.info(f"Отправляется отредактированный ответ для запроса {request_id}")
+            else:
+                # Используем оригинальный ответ от ИИ
+                final_response = draft.llm_response
+                logging.info(f"Отправляется оригинальный ответ ИИ для запроса {request_id}")
+            # ▲▲▲ ВАЖНО: Проверяем, есть ли отредактированный текст ▲▲▲
+
             # Обновляем статус
             request.status = 'approved'
 
-            # Используем отредактированный ответ или оригинальный от ИИ
-            final_response = draft.expert_edited_response or draft.llm_response
-
             # Добавляем приветствие и дисклеймер
-            final_response = giga_client.add_greeting_disclaimer(final_response)  # ← Используем метод из giga_client
+            final_response = giga_client.add_greeting_disclaimer(final_response)
 
             # Отправляем ответ пользователю
             try:
@@ -233,7 +331,8 @@ async def approve_response(callback: types.CallbackQuery):
                 # Уведомляем эксперта об успехе
                 await callback.message.edit_text(
                     f"✅ Ответ опубликован и отправлен пользователю!\n\n"
-                    f"ID запроса: {request_id}",
+                    f"ID запроса: {request_id}\n"
+                    f"Тип ответа: {'Отредактированный экспертом' if draft.expert_edited_response else 'Оригинальный от ИИ'}",
                     reply_markup=None
                 )
 
@@ -307,54 +406,49 @@ async def reject_response(callback: types.CallbackQuery):
 async def start_editing_response(callback: types.CallbackQuery):
     """Начало редактирования ответа"""
 
-    # Защита от множественных нажатий
     if callback.data in processing_requests:
         await callback.answer("⏳ Запрос уже обрабатывается...", show_alert=True)
         return
     processing_requests.add(callback.data)
 
     try:
-        # Проверяем, что это эксперт
         if callback.from_user.id not in EXPERT_IDS:
             await callback.answer("❌ У вас нет прав для редактирования.", show_alert=True)
             return
 
         request_id = int(callback.data.split("_")[1])
-
-        # Находим черновик в БД
         draft = session.query(DraftAnswer).filter_by(request_id=request_id).first()
 
         if draft:
             # Сохраняем сессию редактирования
             editing_sessions[callback.from_user.id] = request_id
 
-            # Определяем, какой текст показывать для редактирования
-            # Показываем отредактированный текст, если он есть, иначе оригинальный от ИИ
+            # Сохраняем message_id текущего сообщения
+            expert_messages[(callback.from_user.id, request_id)] = callback.message.message_id
+
             current_text = draft.expert_edited_response or draft.llm_response
 
-            # Создаем клавиатуру с кнопкой отмены
             cancel_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="❌ Отменить редактирование", callback_data=f"cancel_edit_{request_id}")]
+                [InlineKeyboardButton(text="❌ Отменить редактирование", callback_data=f"cancel_edit_{request_id}")],
+                [InlineKeyboardButton(text="⬅️ Назад к меню", callback_data=f"back_{request_id}")]
             ])
 
-            # Просим эксперта ввести новый текст
-            await callback.message.answer(
-                f"✏️ Редактирование ответа (ID запроса: {request_id})\n\n"
-                f"Текущий ответ:\n"  # Изменили "Текущий текст ответа"
+            # Редактируем текущее сообщение
+            await callback.message.edit_text(
+                f"✏️ РЕДАКТИРОВАНИЕ (ID запроса: {request_id})\n\n"
+                f"Текущий ответ:\n"
                 f"────────────────────\n"
                 f"{current_text}\n"
                 f"────────────────────\n\n"
-                f"📝 Пришлите исправленный текст ответа:\n\n"  # Убрали "СЕЙЧАС"
-                f"💡 После отправки текста вы сможете выбрать действие.",
+                f"📝 Пришлите исправленный текст ответа:",
                 reply_markup=cancel_keyboard
             )
 
-            await callback.answer("✏️ Режим редактирования. Пришлите новый текст ответа.")
+            await callback.answer("Режим редактирования")
         else:
             await callback.answer("❌ Черновик не найден", show_alert=True)
 
     finally:
-        # Убираем из множества обработки после завершения
         if callback.data in processing_requests:
             processing_requests.remove(callback.data)
 
@@ -362,9 +456,8 @@ async def start_editing_response(callback: types.CallbackQuery):
 # Обработчик отмены редактирования
 @dp.callback_query(F.data.startswith("cancel_edit_"))
 async def cancel_editing(callback: types.CallbackQuery):
-    """Отмена редактирования"""
+    """Отмена редактирования - сбрасывает ВСЕ изменения"""
 
-    # Защита от множественных нажатий
     if callback.data in processing_requests:
         await callback.answer("⏳ Запрос уже обрабатывается...", show_alert=True)
         return
@@ -373,39 +466,41 @@ async def cancel_editing(callback: types.CallbackQuery):
     try:
         request_id = int(callback.data.split("_")[2])
 
-        # Удаляем сессию редактирования если существует
+        # Удаляем сессию если существует
         if callback.from_user.id in editing_sessions:
             del editing_sessions[callback.from_user.id]
 
-        # Находим запрос и черновик в БД
         request = session.query(UserRequest).filter_by(id=request_id).first()
         draft = session.query(DraftAnswer).filter_by(request_id=request_id).first()
 
         if request and draft:
-            # Определяем текущий текст ответа (отредактированный или оригинальный)
-            current_response = draft.expert_edited_response or draft.llm_response
+            # ▼▼▼ ВАЖНО: Сбрасываем отредактированный текст в БД! ▼▼▼
+            draft.expert_edited_response = None
+            session.commit()
+            # ▲▲▲ ВАЖНО: Сбрасываем отредактированный текст в БД! ▲▲▲
 
-            # Редактируем исходное сообщение вместо создания нового
+            # Используем оригинальный текст от ИИ
+            current_response = draft.llm_response
+
+            message_text = f"""🆕 Вопрос для модерации (ID: {request_id})
+
+❓ Вопрос пользователя:
+{request.question}
+
+🤖 Ответ ИИ:
+{current_response}"""
+
+            # Редактируем сообщение обратно к основному виду
             await callback.message.edit_text(
-                f"🆕 Вопрос для модерации (ID: {request_id})\n\n"
-                f"❓ Вопрос пользователя:\n{request.question}\n\n"
-                f"🤖 Ответ ИИ:\n{current_response}",  # Изменили "Текст ответа" на "Ответ ИИ"
+                message_text,
                 reply_markup=get_expert_keyboard(request_id)
             )
 
-            # Удаляем сообщение с приглашением к редактированию (если оно есть)
-            try:
-                await callback.message.delete()
-            except:
-                pass  # Игнорируем ошибки если сообщение уже удалено
-
+            await callback.answer("✅ Редактирование отменено, все изменения сброшены")
         else:
             await callback.answer("❌ Запрос не найден", show_alert=True)
 
-        await callback.answer("Редактирование отменено")
-
     finally:
-        # Убираем из множества обработки после завершения
         if callback.data in processing_requests:
             processing_requests.remove(callback.data)
 
@@ -437,7 +532,7 @@ async def regenerate_response(callback: types.CallbackQuery):
                 # Уведомляем эксперта о начале генерации
                 await callback.answer("🔄 Генерирую новый ответ...")
 
-                # Генерируем новый ответ на ОЧИЩЕННЫЙ вопрос
+                # Генерируем новый ответ через GigaChat
                 new_llm_response = await giga_client.generate_response(request.question)
 
                 # Находим или создаем черновик
@@ -458,11 +553,18 @@ async def regenerate_response(callback: types.CallbackQuery):
 
                 session.commit()
 
+                # Формируем текст сообщения
+                message_text = f"""🆕 Новый сгенерированный ответ (ID: {request_id})
+
+❓ Вопрос пользователя:
+{request.question}
+
+🤖 Ответ ИИ:
+{new_llm_response}"""
+
                 # Обновляем сообщение эксперта с новым ответом
                 await callback.message.edit_text(
-                    f"🆕 Новый сгенерированный ответ (ID: {request_id})\n\n"
-                    f"❓ Вопрос пользователя:\n{request.question}\n\n"
-                    f"🤖 Ответ ИИ:\n{new_llm_response}",  # Изменили "Черновик ответа от ИИ" на "Ответ ИИ"
+                    message_text,
                     reply_markup=get_expert_keyboard(request_id)
                 )
 
