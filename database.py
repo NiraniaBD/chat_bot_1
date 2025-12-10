@@ -32,7 +32,7 @@ class DraftAnswer(Base):
     decision_time = Column(DateTime)
     created_at = Column(DateTime, default=datetime.now)
 
-    # Связь с запросом (ПРЯМАЯ связь)
+    # Связь с запросом
     request = relationship("UserRequest", back_populates="drafts")
 
 

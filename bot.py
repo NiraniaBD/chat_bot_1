@@ -3,14 +3,14 @@ import logging
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
-import aiohttp  # Правильный импорт
+import aiohttp
 import json
 from datetime import datetime
 
 from config import BOT_TOKEN, GIGACHAT_AUTH_KEY, GIGACHAT_SCOPE
 from database import session, UserRequest, DraftAnswer
 from keyboards import get_expert_keyboard
-from gigachat_client import GigaChatClient  # Добавить импорт
+from gigachat_client import GigaChatClient
 
 from question_processor import QuestionProcessor
 question_processor = QuestionProcessor()
@@ -28,8 +28,8 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Список ID экспертов (замените на реальные ID)
-EXPERT_IDS = [982232323]  # Ваш Telegram ID
+# Список ID экспертов
+EXPERT_IDS = [982232323]
 
 # Глобальный словарь для отслеживания редактирования
 editing_sessions = {}
@@ -37,13 +37,10 @@ editing_sessions = {}
 # Новый словарь для хранения message_id сообщений с кнопками
 expert_messages = {}  # ключ: (expert_id, request_id), значение: message_id
 
-# Защита от множественных нажатий (anti-flood)
+# Защита от множественных нажатий
 processing_requests = set()
 
 question_processor = QuestionProcessor()
-
-
-
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -142,10 +139,8 @@ async def handle_expert_text(message: types.Message):
             message_key = (message.from_user.id, request_id)
             target_message_id = expert_messages.get(message_key)
 
-            # ▼▼▼ ИСПРАВЛЕНИЕ: используем стандартную клавиатуру эксперта ▼▼▼
             # После редактирования возвращаемся к ОСНОВНОЙ клавиатуре
             keyboard = get_expert_keyboard(request_id)  # Стандартная клавиатура!
-            # ▲▲▲ ИСПРАВЛЕНИЕ: используем стандартную клавиатуру эксперта ▲▲▲
 
             # Формируем текст сообщения
             message_text = f"""🆕 Вопрос для модерации (ID: {request_id})
@@ -299,7 +294,7 @@ async def approve_response(callback: types.CallbackQuery):
         draft = session.query(DraftAnswer).filter_by(request_id=request_id).first()
 
         if request and draft:
-            # ▼▼▼ ВАЖНО: Проверяем, есть ли отредактированный текст ▼▼▼
+            #ВАЖНО: Проверяем, есть ли отредактированный текст ▼▼▼
             if draft.expert_edited_response is not None:
                 # Используем отредактированный ответ
                 final_response = draft.expert_edited_response
@@ -308,7 +303,6 @@ async def approve_response(callback: types.CallbackQuery):
                 # Используем оригинальный ответ от ИИ
                 final_response = draft.llm_response
                 logging.info(f"Отправляется оригинальный ответ ИИ для запроса {request_id}")
-            # ▲▲▲ ВАЖНО: Проверяем, есть ли отредактированный текст ▲▲▲
 
             # Обновляем статус
             request.status = 'approved'
@@ -474,10 +468,9 @@ async def cancel_editing(callback: types.CallbackQuery):
         draft = session.query(DraftAnswer).filter_by(request_id=request_id).first()
 
         if request and draft:
-            # ▼▼▼ ВАЖНО: Сбрасываем отредактированный текст в БД! ▼▼▼
+            #ВАЖНО: Сбрасываем отредактированный текст в БД!
             draft.expert_edited_response = None
             session.commit()
-            # ▲▲▲ ВАЖНО: Сбрасываем отредактированный текст в БД! ▲▲▲
 
             # Используем оригинальный текст от ИИ
             current_response = draft.llm_response
