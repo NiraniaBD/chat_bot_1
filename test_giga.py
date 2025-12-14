@@ -10,7 +10,7 @@ from gigachat_client import GigaChatClient
 
 async def test_gigachat():
     # Ваш ключ авторизации
-    AUTH_KEY = "MDE5YWZlY2EtNDBiZS03NWQxLWJiZDgtMzcwMWQ4MTc3MGNlOjViNzI4NzJjLWE3NjgtNDJhMy1iZmMyLWJkODc4MTU1NTc3Ng=="
+    AUTH_KEY = "MDE5YjFkNDgtNWI4Mi03NTkyLTk5MDMtOGU5N2VmYjU4YjA3OjMyMDVjNTUyLWI1NWEtNDQzNi1iODQxLWQyZjhjZGE1NWVkNA=="
     SCOPE = "GIGACHAT_API_PERS"
 
     print("=" * 50)
