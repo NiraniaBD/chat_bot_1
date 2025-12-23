@@ -15,7 +15,6 @@ from gigachat_client import GigaChatClient
 from question_processor import QuestionProcessor
 question_processor = QuestionProcessor()
 
-
 giga_client = GigaChatClient(
     auth_key=GIGACHAT_AUTH_KEY,
     scope=GIGACHAT_SCOPE
@@ -29,7 +28,7 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 # Список ID экспертов
-EXPERT_IDS = [753655653] #Даша 982232323, Оля 1552323966, Татьяна Бобышева 753655653
+EXPERT_IDS = [753655653] #Даша 982232323, Оля 1552323966, Татьяна Николаевна Бобышева 753655653
 
 # Глобальный словарь для отслеживания редактирования
 editing_sessions = {}

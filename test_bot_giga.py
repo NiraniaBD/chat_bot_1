@@ -1,4 +1,3 @@
-# test_bot_giga.py
 import asyncio
 import sys
 import os

@@ -1,4 +1,3 @@
-# gigachat_client.py
 import asyncio
 import aiohttp
 import json
@@ -8,7 +7,6 @@ import ssl
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
-
 
 class GigaChatClient:
     def __init__(self, auth_key: str, scope: str = "GIGACHAT_API_PERS"):

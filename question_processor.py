@@ -3,7 +3,6 @@ import re
 
 logger = logging.getLogger(__name__)
 
-
 class QuestionProcessor:
     """Умный обработчик вопросов с гибкой фильтрацией"""
 

@@ -1,7 +1,6 @@
 from database import session, UserRequest, DraftAnswer
 from datetime import datetime
 
-
 def view_all_data():
     print("=" * 50)
     print("📊 ПРОСМОТР БАЗЫ ДАННЫХ")

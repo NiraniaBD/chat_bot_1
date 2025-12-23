@@ -1,6 +1,5 @@
 from database import session, UserRequest, DraftAnswer
 
-
 def check_database():
     print("📊 Проверка базы данных:")
 
@@ -19,7 +18,6 @@ def check_database():
     for draft in drafts:
         print(f"Request ID: {draft.request_id}")
         print(f"Response: {draft.llm_response[:50]}...")
-
 
 if __name__ == "__main__":
     check_database()
